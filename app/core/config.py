@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     database_url: str = ""
+    api_key: str = ""
 
     groq_api_key: str = ""
     obsidian_vault_path: str = ""
