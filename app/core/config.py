@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     ai_relevance_threshold: float = 0.7
     fetch_interval_hours: int = 4
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env")
 
 
 settings = Settings()
