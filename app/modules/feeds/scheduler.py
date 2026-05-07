@@ -3,7 +3,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import settings
 from app.core.database import async_session
-from app.modules.feeds.service import fetch_all_feeds
+from app.modules.feeds.service import fetch_and_review_feeds
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -21,4 +21,4 @@ def create_scheduler() -> AsyncIOScheduler:
 
 async def fetch_all_feeds_job():
     async with async_session() as session:
-        await fetch_all_feeds(session)
+        await fetch_and_review_feeds(session)

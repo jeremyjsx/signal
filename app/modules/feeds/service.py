@@ -6,7 +6,9 @@ import feedparser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.modules.articles.models import Article
+from app.modules.articles.ai_service import analyze_articles_batch
 from app.modules.feeds.models import Feed
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,8 @@ async def fetch_feed(feed) -> list[dict]:
         return []
 
 
-async def fetch_all_feeds(session: AsyncSession) -> int:
-    """Fetch all active feeds and save new articles"""
+async def fetch_and_review_feeds(session: AsyncSession) -> int:
+    """Fetch all active feeds, AI batch score, and save new articles"""
     result = await session.execute(select(Feed).where(Feed.is_active))
     feeds = result.scalars().all()
 
@@ -64,6 +66,8 @@ async def fetch_all_feeds(session: AsyncSession) -> int:
         return 0
 
     new_articles_count = 0
+    curated_count = 0
+    pending_articles = []
 
     for feed in feeds:
         entries = await fetch_feed(feed)
@@ -83,10 +87,27 @@ async def fetch_all_feeds(session: AsyncSession) -> int:
                 summary=entry["summary"],
                 published_at=entry["published_at"],
             )
+            pending_articles.append(article)
             session.add(article)
             new_articles_count += 1
 
         feed.last_fetched_at = datetime.now()
+
+    if pending_articles and settings.groq_api_key:
+        logger.info(f"AI batch scoring {len(pending_articles)} articles...")
+        
+        article_data = [
+            (a.title, a.summary or "") for a in pending_articles
+        ]
+        scores = await analyze_articles_batch(article_data)
+        
+        for article, score in zip(pending_articles, scores):
+            article.ai_relevance_score = score
+            article.ai_reviewed = True
+            if score >= settings.ai_relevance_threshold:
+                article.is_curated = True
+                curated_count += 1
+
     await session.commit()
 
     return new_articles_count
