@@ -7,8 +7,8 @@ from alembic import context
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models.feed import Feed
-from app.models.article import Article
+from app.modules.feeds.models import Feed
+from app.modules.articles.models import Article
 
 config = context.config
 

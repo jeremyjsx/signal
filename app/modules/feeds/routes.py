@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.feeds.service import create_feed_db, fetch_all_feeds, list_feeds_db
+from app.modules.feeds.service import create_feed_db, fetch_and_review_feeds, list_feeds_db
 
 router = APIRouter()
 
@@ -16,9 +16,9 @@ class FeedCreate(BaseModel):
 
 @router.post("/feeds/fetch", tags=["feeds"])
 async def trigger_fetch(db: AsyncSession = Depends(get_db)):
-    """Manually trigger feed fetching"""
-    new_articles = await fetch_all_feeds(db)
-    return {"new_articles": new_articles}
+    """Fetch feeds and auto-score with AI"""
+    result = await fetch_and_review_feeds(db)
+    return {"new_articles": result}
 
 
 @router.post("/feeds", tags=["feeds"])
