@@ -3,7 +3,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.feeds.service import create_feed_db, fetch_and_review_feeds, list_feeds_db
+from app.modules.feeds.service import (
+    create_feed_db,
+    fetch_and_review_feeds,
+    list_feeds_db,
+    list_job_runs_db,
+)
 
 router = APIRouter()
 
@@ -31,3 +36,9 @@ async def create_feed(feed: FeedCreate, db: AsyncSession = Depends(get_db)):
 async def list_feeds(db: AsyncSession = Depends(get_db)):
     """List feeds"""
     return await list_feeds_db(db)
+
+
+@router.get("/jobs/runs", tags=["feeds"])
+async def list_job_runs(limit: int = 20, db: AsyncSession = Depends(get_db)):
+    """List recent scheduler runs."""
+    return await list_job_runs_db(limit=limit, db=db)
