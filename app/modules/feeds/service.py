@@ -3,13 +3,17 @@ from datetime import datetime
 from typing import Optional
 
 import feedparser
-from sqlalchemy import select
+import httpx
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from app.core.config import settings
 from app.modules.articles.models import Article
 from app.modules.articles.ai_service import analyze_articles_batch
-from app.modules.feeds.models import Feed
+from app.modules.articles.obsidian_service import write_curated_article_to_obsidian
+from app.modules.feeds.models import Feed, JobRun
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ async def fetch_feed(feed) -> list[dict]:
     """Fetch and parse RSS feed"""
     feed_url = feed.url
     try:
-        parsed = feedparser.parse(feed_url)
+        parsed = feedparser.parse(await _fetch_feed_content(feed_url))
         entries = []
 
         for entry in parsed.entries[:20]:
@@ -57,8 +61,22 @@ async def fetch_feed(feed) -> list[dict]:
         return []
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=8),
+    retry=retry_if_exception_type(httpx.HTTPError),
+    reraise=True,
+)
+async def _fetch_feed_content(url: str) -> str:
+    timeout = httpx.Timeout(10.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.text
+
+
 async def fetch_and_review_feeds(session: AsyncSession) -> int:
-    """Fetch all active feeds, AI batch score, and save new articles"""
+    """Fetch all active feeds, AI batch score, and upsert new articles."""
     result = await session.execute(select(Feed).where(Feed.is_active))
     feeds = result.scalars().all()
 
@@ -66,47 +84,75 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
         return 0
 
     new_articles_count = 0
-    curated_count = 0
-    pending_articles = []
-
     for feed in feeds:
         entries = await fetch_feed(feed)
+        rows_to_insert = []
 
         for entry in entries:
-            existing = await session.execute(
-                select(Article).where(Article.url == entry["url"])
-            )
-            if existing.scalar_one_or_none():
+            url = entry["url"]
+            if not url:
                 continue
 
-            article = Article(
-                feed_id=feed.id,
-                title=entry["title"],
-                url=entry["url"],
-                content=entry["content"],
-                summary=entry["summary"],
-                published_at=entry["published_at"],
+            rows_to_insert.append(
+                {
+                    "feed_id": feed.id,
+                    "title": entry["title"],
+                    "url": url,
+                    "content": entry["content"],
+                    "summary": entry["summary"],
+                    "published_at": entry["published_at"],
+                }
             )
-            pending_articles.append(article)
-            session.add(article)
-            new_articles_count += 1
+
+        if rows_to_insert:
+            insert_stmt = (
+                insert(Article)
+                .values(rows_to_insert)
+                .on_conflict_do_nothing(index_elements=[Article.url])
+                .returning(
+                    Article.id,
+                    Article.title,
+                    Article.summary,
+                    Article.url,
+                    Article.published_at,
+                )
+            )
+            inserted_rows = (await session.execute(insert_stmt)).all()
+            new_articles_count += len(inserted_rows)
+
+            if inserted_rows and settings.groq_api_key:
+                logger.info(f"AI batch scoring {len(inserted_rows)} articles...")
+                article_data = [(row.title, row.summary or "") for row in inserted_rows]
+                scores = await analyze_articles_batch(article_data)
+
+                for row, score in zip(inserted_rows, scores):
+                    is_curated = score >= settings.ai_relevance_threshold
+                    await session.execute(
+                        update(Article)
+                        .where(Article.id == row.id)
+                        .values(
+                            ai_relevance_score=score,
+                            ai_reviewed=True,
+                            is_curated=is_curated,
+                            obsidian_export_status="pending" if is_curated else None,
+                        )
+                    )
+                    if is_curated:
+                        write_curated_article_to_obsidian(
+                            article_id=row.id,
+                            title=row.title,
+                            url=row.url,
+                            score=score,
+                            summary=row.summary,
+                            published_at=(
+                                row.published_at.isoformat()
+                                if row.published_at
+                                else None
+                            ),
+                            feed_name=feed.name,
+                        )
 
         feed.last_fetched_at = datetime.now()
-
-    if pending_articles and settings.groq_api_key:
-        logger.info(f"AI batch scoring {len(pending_articles)} articles...")
-        
-        article_data = [
-            (a.title, a.summary or "") for a in pending_articles
-        ]
-        scores = await analyze_articles_batch(article_data)
-        
-        for article, score in zip(pending_articles, scores):
-            article.ai_relevance_score = score
-            article.ai_reviewed = True
-            if score >= settings.ai_relevance_threshold:
-                article.is_curated = True
-                curated_count += 1
 
     await session.commit()
 
@@ -135,4 +181,25 @@ async def list_feeds_db(db: AsyncSession):
             "is_active": f.is_active,
         }
         for f in feeds
+    ]
+
+
+async def list_job_runs_db(limit: int, db: AsyncSession):
+    """List latest scheduler job runs."""
+    result = await db.execute(
+        select(JobRun).order_by(JobRun.started_at.desc()).limit(limit)
+    )
+    runs = result.scalars().all()
+    return [
+        {
+            "id": run.id,
+            "job_name": run.job_name,
+            "status": run.status,
+            "new_articles": run.new_articles,
+            "message": run.message,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+            "duration_ms": run.duration_ms,
+        }
+        for run in runs
     ]
