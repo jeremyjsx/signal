@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -16,3 +16,16 @@ class Feed(Base):
     last_fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class JobRun(Base):
+    __tablename__ = "job_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    new_articles: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=True)
