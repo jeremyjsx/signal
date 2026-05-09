@@ -21,22 +21,24 @@ def write_curated_article_to_obsidian(
     summary: Optional[str],
     published_at: Optional[str],
     feed_name: str,
-) -> Optional[str]:
+) -> str:
     """Write curated article as markdown file in Obsidian vault."""
     vault_path_value = settings.obsidian_vault_path.strip()
     if not vault_path_value:
-        return None
+        raise ValueError("OBSIDIAN_VAULT_PATH is not configured.")
 
     vault_path = Path(vault_path_value).expanduser()
     if not vault_path.exists() or not vault_path.is_dir():
-        logger.warning("Obsidian vault path not found: %s", vault_path)
-        return None
+        raise FileNotFoundError(f"Obsidian vault path not found: {vault_path}")
 
     curated_dir = vault_path / "Signal Curated"
     curated_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{article_id}-{_slugify(title)}.md"
     file_path = curated_dir / filename
+
+    if file_path.exists():
+        return str(file_path)
 
     markdown = (
         f"# {title}\n\n"
