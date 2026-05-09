@@ -12,7 +12,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.core.config import settings
 from app.modules.articles.models import Article
 from app.modules.articles.ai_service import analyze_articles_batch
-from app.modules.articles.obsidian_service import write_curated_article_to_obsidian
 from app.modules.feeds.models import Feed, JobRun
 
 logger = logging.getLogger(__name__)
@@ -69,8 +68,12 @@ async def fetch_feed(feed) -> list[dict]:
 )
 async def _fetch_feed_content(url: str) -> str:
     timeout = httpx.Timeout(10.0, connect=5.0)
+    headers = {
+        "User-Agent": settings.http_user_agent,
+        "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8",
+    }
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        response = await client.get(url)
+        response = await client.get(url, headers=headers)
         response.raise_for_status()
         return response.text
 
@@ -137,20 +140,6 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
                             obsidian_export_status="pending" if is_curated else None,
                         )
                     )
-                    if is_curated:
-                        write_curated_article_to_obsidian(
-                            article_id=row.id,
-                            title=row.title,
-                            url=row.url,
-                            score=score,
-                            summary=row.summary,
-                            published_at=(
-                                row.published_at.isoformat()
-                                if row.published_at
-                                else None
-                            ),
-                            feed_name=feed.name,
-                        )
 
         feed.last_fetched_at = datetime.now()
 
