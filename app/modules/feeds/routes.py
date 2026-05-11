@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.feeds.service import (
+    cleanup_old_articles,
     create_feed_db,
     fetch_and_review_feeds,
     list_feeds_db,
@@ -24,6 +25,12 @@ async def trigger_fetch(db: AsyncSession = Depends(get_db)):
     """Fetch feeds and auto-score with AI"""
     result = await fetch_and_review_feeds(db)
     return {"new_articles": result}
+
+
+@router.post("/feeds/cleanup", tags=["feeds"])
+async def trigger_cleanup(db: AsyncSession = Depends(get_db)):
+    """Delete old non-curated articles based on retention policy."""
+    return await cleanup_old_articles(db)
 
 
 @router.post("/feeds", tags=["feeds"])

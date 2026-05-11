@@ -1,12 +1,12 @@
 import logging
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import feedparser
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -439,3 +439,20 @@ async def list_job_runs_db(limit: int, db: AsyncSession):
         }
         for run in runs
     ]
+
+
+async def cleanup_old_articles(session: AsyncSession) -> dict:
+    """Delete old non-curated articles to keep DB growth controlled."""
+    cutoff = datetime.now() - timedelta(days=settings.non_curated_retention_days)
+    result = await session.execute(
+        delete(Article)
+        .where(Article.is_curated.is_(False))
+        .where(Article.fetched_at < cutoff)
+    )
+    deleted = result.rowcount or 0
+    await session.commit()
+    return {
+        "deleted_articles": deleted,
+        "cutoff": cutoff.isoformat(),
+        "retention_days": settings.non_curated_retention_days,
+    }

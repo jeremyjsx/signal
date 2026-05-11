@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import async_session
 from app.modules.feeds.models import JobRun
-from app.modules.feeds.service import fetch_and_review_feeds
+from app.modules.feeds.service import cleanup_old_articles, fetch_and_review_feeds
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,12 @@ def create_scheduler() -> AsyncIOScheduler:
         fetch_all_feeds_job,
         trigger=IntervalTrigger(hours=settings.fetch_interval_hours),
         id="fetch_feeds",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        cleanup_old_articles_job,
+        trigger=IntervalTrigger(hours=settings.cleanup_interval_hours),
+        id="cleanup_old_articles",
         replace_existing=True,
     )
     
@@ -68,6 +74,60 @@ async def fetch_all_feeds_job():
                     {
                         "app_key": settings.job_lock_app_key,
                         "job_key": settings.job_lock_fetch_feeds_key,
+                    },
+                )
+            finished = datetime.now()
+            run.finished_at = finished
+            run.duration_ms = int((finished - start).total_seconds() * 1000)
+            await session.commit()
+
+
+async def cleanup_old_articles_job():
+    lock_acquired = False
+    async with async_session() as session:
+        run = JobRun(job_name="cleanup_old_articles", status="running")
+        session.add(run)
+        await session.commit()
+        await session.refresh(run)
+
+        start = datetime.now()
+        try:
+            lock_acquired = bool(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT pg_try_advisory_lock(:app_key, :job_key)"
+                        ),
+                        {
+                            "app_key": settings.job_lock_app_key,
+                            "job_key": settings.job_lock_cleanup_articles_key,
+                        },
+                    )
+                ).scalar()
+            )
+            if not lock_acquired:
+                run.status = "skipped"
+                run.message = "Skipped because another instance is running the job."
+                return
+
+            cleanup_result = await cleanup_old_articles(session)
+            run.status = "success"
+            run.new_articles = cleanup_result["deleted_articles"]
+            run.message = (
+                f"Deleted {cleanup_result['deleted_articles']} articles "
+                f"older than {cleanup_result['retention_days']} days."
+            )
+        except Exception as exc:
+            run.status = "failed"
+            run.message = str(exc)[:500]
+            logger.exception("Failed running cleanup_old_articles_job")
+        finally:
+            if lock_acquired:
+                await session.execute(
+                    text("SELECT pg_advisory_unlock(:app_key, :job_key)"),
+                    {
+                        "app_key": settings.job_lock_app_key,
+                        "job_key": settings.job_lock_cleanup_articles_key,
                     },
                 )
             finished = datetime.now()
