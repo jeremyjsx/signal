@@ -1,35 +1,88 @@
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import asc, desc, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.articles.models import Article
+from app.modules.articles.models import Article, ArticleScore, ArticleTag
 from app.modules.feeds.models import Feed
 
 
-async def list_articles_db(limit: int, db: AsyncSession, curated: bool = False):
-    """List fetched articles. Filter by curated=True for AI-approved only."""
-    query = select(Article)
+async def list_articles_db(
+    db: AsyncSession,
+    limit: int = 20,
+    offset: int = 0,
+    curated: Optional[bool] = None,
+    export_status: Optional[str] = None,
+    score_min: Optional[float] = None,
+    tag: Optional[str] = None,
+    order_by: str = "fetched_at",
+    order_dir: str = "desc",
+):
+    """List fetched articles with pagination, filtering and ordering."""
+    score_subquery = (
+        select(ArticleScore.final_score).where(ArticleScore.article_id == Article.id)
+    ).scalar_subquery()
+    query = select(Article, score_subquery.label("final_score"))
+    count_query = select(func.count(Article.id))
 
-    if curated:
-        query = query.where(Article.is_curated)
+    if curated is not None:
+        query = query.where(Article.is_curated.is_(curated))
+        count_query = count_query.where(Article.is_curated.is_(curated))
 
-    query = query.order_by(Article.fetched_at.desc()).limit(limit)
+    if export_status:
+        query = query.where(Article.obsidian_export_status == export_status)
+        count_query = count_query.where(Article.obsidian_export_status == export_status)
 
+    if score_min is not None:
+        query = query.where(score_subquery >= score_min)
+        count_query = count_query.where(score_subquery >= score_min)
+
+    if tag:
+        tag_exists = exists(
+            select(1).where(
+                ArticleTag.article_id == Article.id,
+                ArticleTag.tag == tag.lower(),
+            )
+        )
+        query = query.where(tag_exists)
+        count_query = count_query.where(tag_exists)
+
+    order_dir = order_dir.lower()
+    order_by = order_by.lower()
+    if order_by == "score":
+        order_column = score_subquery
+    else:
+        order_column = Article.fetched_at
+    order_function = desc if order_dir == "desc" else asc
+    query = query.order_by(order_function(order_column))
+    query = query.offset(offset).limit(limit)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one() or 0
     result = await db.execute(query)
-    articles = result.scalars().all()
-    return [
-        {
-            "id": a.id,
-            "title": a.title,
-            "url": a.url,
-            "fetched_at": a.fetched_at.isoformat() if a.fetched_at else None,
-            "is_curated": a.is_curated,
-            "is_rejected": a.is_rejected,
-            "ai_score": a.ai_relevance_score,
-        }
-        for a in articles
-    ]
+    rows = result.all()
+    return {
+        "items": [
+            {
+                "id": article.id,
+                "title": article.title,
+                "url": article.url,
+                "fetched_at": (
+                    article.fetched_at.isoformat() if article.fetched_at else None
+                ),
+                "is_curated": article.is_curated,
+                "is_rejected": article.is_rejected,
+                "ai_score": article.ai_relevance_score,
+                "score": score,
+                "obsidian_export_status": article.obsidian_export_status,
+            }
+            for article, score in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 async def list_pending_obsidian_articles_db(limit: int, db: AsyncSession):
