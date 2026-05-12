@@ -13,11 +13,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from app.core.config import settings
 from app.modules.articles.models import Article, ArticleDecision, ArticleScore, ArticleTag
-from app.modules.articles.ai_service import analyze_articles_batch
+from app.modules.articles.ai_service import AI_MODEL_NAME, analyze_articles_batch
 from app.modules.feeds.models import Feed, JobRun
 
 logger = logging.getLogger(__name__)
-AI_MODEL_NAME = "llama-3.1-8b-instant"
 
 IGNORED_TRACKING_PARAMS = {
     "fbclid",
@@ -297,21 +296,37 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
                 logger.info(f"AI batch scoring {len(inserted_rows)} articles...")
                 article_data = [(row.title, row.summary or "") for row in inserted_rows]
                 if settings.groq_api_key:
-                    scores = await analyze_articles_batch(article_data)
+                    analysis_results = await analyze_articles_batch(article_data)
                 else:
-                    scores = [0.0] * len(inserted_rows)
+                    analysis_results = []
 
                 score_rows = []
                 tag_rows = []
                 decision_rows = []
 
-                for row, score in zip(inserted_rows, scores):
-                    is_curated = score >= settings.ai_relevance_threshold
+                for idx, row in enumerate(inserted_rows):
+                    analysis = (
+                        analysis_results[idx]
+                        if idx < len(analysis_results)
+                        else {
+                            "relevance_score": 0.0,
+                            "backend_depth_score": 0.0,
+                            "novelty_score": 0.0,
+                            "actionability_score": 0.0,
+                            "linkedin_potential_score": 0.0,
+                            "final_score": 0.0,
+                            "decision": "discard",
+                            "reasoning_summary": "Missing analysis result",
+                            "model_name": AI_MODEL_NAME,
+                        }
+                    )
+                    final_score = float(analysis["final_score"])
+                    is_curated = final_score >= settings.ai_relevance_threshold
                     await session.execute(
                         update(Article)
                         .where(Article.id == row.id)
                         .values(
-                            ai_relevance_score=score,
+                            ai_relevance_score=analysis["relevance_score"],
                             ai_reviewed=True,
                             is_curated=is_curated,
                             obsidian_export_status="pending" if is_curated else None,
@@ -320,18 +335,16 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
                     score_rows.append(
                         {
                             "article_id": row.id,
-                            "relevance_score": score,
-                            "backend_depth_score": None,
-                            "novelty_score": None,
-                            "actionability_score": None,
-                            "linkedin_potential_score": None,
-                            "final_score": score,
-                            "decision": "keep" if is_curated else "discard",
-                            "reasoning_summary": (
-                                "auto-scored by relevance threshold"
-                            ),
+                            "relevance_score": analysis["relevance_score"],
+                            "backend_depth_score": analysis["backend_depth_score"],
+                            "novelty_score": analysis["novelty_score"],
+                            "actionability_score": analysis["actionability_score"],
+                            "linkedin_potential_score": analysis["linkedin_potential_score"],
+                            "final_score": final_score,
+                            "decision": analysis["decision"],
+                            "reasoning_summary": analysis["reasoning_summary"],
                             "scored_at": datetime.now(),
-                            "model_name": AI_MODEL_NAME,
+                            "model_name": analysis.get("model_name") or AI_MODEL_NAME,
                         }
                     )
 
