@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.articles.service import list_articles_db
+from app.modules.articles.service import list_articles_db, retry_failed_obsidian_exports_db
 
 router = APIRouter()
 
@@ -33,3 +33,12 @@ async def list_articles(
         order_by=order_by,
         order_dir=order_dir,
     )
+
+
+@router.post("/articles/obsidian/retry-failed", tags=["articles"])
+async def retry_failed_obsidian_exports(
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move failed Obsidian exports back to pending status."""
+    return await retry_failed_obsidian_exports_db(limit=limit, db=db)

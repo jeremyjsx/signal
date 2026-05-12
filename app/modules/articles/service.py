@@ -119,3 +119,23 @@ async def mark_article_obsidian_failed_db(
     article.obsidian_export_status = "pending" if keep_pending else "failed"
     article.obsidian_note_path = None
     await db.commit()
+
+
+async def retry_failed_obsidian_exports_db(limit: int, db: AsyncSession) -> dict:
+    """Move failed Obsidian exports back to pending for retry."""
+    result = await db.execute(
+        select(Article)
+        .where(Article.obsidian_export_status == "failed")
+        .order_by(Article.fetched_at.desc())
+        .limit(limit)
+    )
+    failed_articles = result.scalars().all()
+    for article in failed_articles:
+        article.obsidian_export_status = "pending"
+        article.obsidian_note_path = None
+
+    await db.commit()
+    return {
+        "retried": len(failed_articles),
+        "article_ids": [article.id for article in failed_articles],
+    }
