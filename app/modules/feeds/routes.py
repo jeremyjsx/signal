@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,7 @@ from app.modules.feeds.service import (
     cleanup_old_articles,
     create_feed_db,
     fetch_and_review_feeds,
+    list_feed_quality_db,
     list_feeds_db,
     list_job_runs_db,
     reactivate_feed_db,
@@ -50,6 +53,22 @@ async def reactivate_feed(feed_id: int, db: AsyncSession = Depends(get_db)):
 async def list_feeds(db: AsyncSession = Depends(get_db)):
     """List feeds"""
     return await list_feeds_db(db)
+
+
+@router.get("/feeds/quality", tags=["feeds"])
+async def list_feeds_quality(
+    status: Optional[str] = Query(default=None),
+    min_scored_articles: Optional[int] = Query(default=None, ge=1),
+    min_curated_rate: Optional[float] = Query(default=None, ge=0, le=1),
+    db: AsyncSession = Depends(get_db),
+):
+    """List feed quality metrics and health classification."""
+    return await list_feed_quality_db(
+        db=db,
+        status=status,
+        min_scored_articles=min_scored_articles,
+        min_curated_rate=min_curated_rate,
+    )
 
 
 @router.get("/jobs/runs", tags=["feeds"])

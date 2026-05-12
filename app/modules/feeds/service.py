@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import feedparser
 import httpx
-from sqlalchemy import delete, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -182,6 +182,23 @@ def _mark_feed_fetch_success(feed: Feed) -> None:
     feed.consecutive_failures = 0
     feed.last_error_message = None
     feed.last_error_at = None
+
+
+def _classify_feed_quality(
+    is_active: bool,
+    consecutive_failures: int,
+    total_scored: int,
+    curated_rate: float,
+    min_scored_articles: int,
+    min_curated_rate: float,
+) -> str:
+    if not is_active:
+        return "disabled"
+    if (consecutive_failures or 0) > 0:
+        return "degraded"
+    if total_scored >= min_scored_articles and curated_rate < min_curated_rate:
+        return "degraded"
+    return "healthy"
 
 
 @retry(
@@ -463,6 +480,107 @@ async def list_feeds_db(db: AsyncSession):
         }
         for f in feeds
     ]
+
+
+async def list_feed_quality_db(
+    db: AsyncSession,
+    status: Optional[str] = None,
+    min_scored_articles: Optional[int] = None,
+    min_curated_rate: Optional[float] = None,
+):
+    """Return quality metrics per feed for signal control."""
+    min_scored = (
+        min_scored_articles
+        if min_scored_articles is not None
+        else settings.feed_quality_min_scored_articles
+    )
+    min_curated = (
+        min_curated_rate
+        if min_curated_rate is not None
+        else settings.feed_quality_min_curated_rate
+    )
+
+    score_stats_subquery = (
+        select(
+            Article.feed_id.label("feed_id"),
+            func.count(ArticleScore.id).label("total_scored"),
+            func.sum(case((ArticleScore.decision == "keep", 1), else_=0)).label(
+                "kept_count"
+            ),
+            func.sum(case((ArticleScore.decision == "discard", 1), else_=0)).label(
+                "discarded_count"
+            ),
+            func.avg(ArticleScore.final_score).label("avg_score"),
+        )
+        .join(Article, Article.id == ArticleScore.article_id)
+        .group_by(Article.feed_id)
+        .subquery()
+    )
+
+    feed_query = (
+        select(
+            Feed,
+            score_stats_subquery.c.total_scored,
+            score_stats_subquery.c.kept_count,
+            score_stats_subquery.c.discarded_count,
+            score_stats_subquery.c.avg_score,
+        )
+        .outerjoin(score_stats_subquery, score_stats_subquery.c.feed_id == Feed.id)
+        .order_by(Feed.name.asc())
+    )
+    rows = (await db.execute(feed_query)).all()
+
+    metrics = []
+    for feed, total_scored, kept_count, discarded_count, avg_score in rows:
+        total = int(total_scored or 0)
+        kept = int(kept_count or 0)
+        discarded = int(discarded_count or 0)
+        curated_rate = (kept / total) if total else 0.0
+        discard_rate = (discarded / total) if total else 0.0
+        feed_status = _classify_feed_quality(
+            is_active=feed.is_active,
+            consecutive_failures=feed.consecutive_failures,
+            total_scored=total,
+            curated_rate=curated_rate,
+            min_scored_articles=min_scored,
+            min_curated_rate=min_curated,
+        )
+
+        if status and status != feed_status:
+            continue
+
+        metrics.append(
+            {
+                "feed_id": feed.id,
+                "name": feed.name,
+                "category": feed.category,
+                "is_active": feed.is_active,
+                "health_status": feed_status,
+                "consecutive_failures": feed.consecutive_failures,
+                "total_scored": total,
+                "kept_count": kept,
+                "discarded_count": discarded,
+                "curated_rate": round(curated_rate, 4),
+                "discard_rate": round(discard_rate, 4),
+                "avg_score": round(float(avg_score), 4) if avg_score is not None else None,
+                "last_success_at": (
+                    feed.last_success_at.isoformat() if feed.last_success_at else None
+                ),
+                "last_error_at": (
+                    feed.last_error_at.isoformat() if feed.last_error_at else None
+                ),
+                "last_error_message": feed.last_error_message,
+                "auto_disabled_at": (
+                    feed.auto_disabled_at.isoformat() if feed.auto_disabled_at else None
+                ),
+            }
+        )
+
+    return {
+        "min_scored_articles": min_scored,
+        "min_curated_rate": min_curated,
+        "items": metrics,
+    }
 
 
 async def reactivate_feed_db(feed_id: int, db: AsyncSession):
