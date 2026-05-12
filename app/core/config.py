@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     fetch_interval_hours: int = 4
     cleanup_interval_hours: int = 24
     non_curated_retention_days: int = 30
+    feed_disable_after_failures: int = 5
     http_user_agent: str = "SignalRSSBot/1.0"
     job_lock_app_key: int = 7300
     job_lock_fetch_feeds_key: int = 1

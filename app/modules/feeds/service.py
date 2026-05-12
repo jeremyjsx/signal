@@ -138,7 +138,7 @@ async def _record_seen_hashes(
     )
 
 
-async def fetch_feed(feed) -> list[dict]:
+async def fetch_feed(feed) -> tuple[list[dict], Optional[str]]:
     """Fetch and parse RSS feed"""
     feed_url = feed.url
     try:
@@ -159,10 +159,30 @@ async def fetch_feed(feed) -> list[dict]:
                 }
             )
 
-        return entries
+        return entries, None
     except Exception as e:
-        logger.error(f"Error fetching {feed_url}: {e}")
-        return []
+        error_message = str(e)
+        logger.error(f"Error fetching {feed_url}: {error_message}")
+        return [], error_message
+
+
+def _mark_feed_fetch_failure(feed: Feed, error_message: str) -> None:
+    now = datetime.now()
+    feed.consecutive_failures = (feed.consecutive_failures or 0) + 1
+    feed.last_error_at = now
+    feed.last_error_message = error_message[:500]
+    if feed.consecutive_failures >= settings.feed_disable_after_failures:
+        feed.is_active = False
+        feed.auto_disabled_at = now
+
+
+def _mark_feed_fetch_success(feed: Feed) -> None:
+    now = datetime.now()
+    feed.last_fetched_at = now
+    feed.last_success_at = now
+    feed.consecutive_failures = 0
+    feed.last_error_message = None
+    feed.last_error_at = None
 
 
 @retry(
@@ -193,7 +213,10 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
 
     new_articles_count = 0
     for feed in feeds:
-        entries = await fetch_feed(feed)
+        entries, fetch_error = await fetch_feed(feed)
+        if fetch_error:
+            _mark_feed_fetch_failure(feed, fetch_error)
+            continue
         candidates = []
         skipped_hashes = []
 
@@ -220,7 +243,7 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
             )
 
         if not candidates:
-            feed.last_fetched_at = datetime.now()
+            _mark_feed_fetch_success(feed)
             continue
 
         candidate_hashes = [c["url_hash"] for c in candidates]
@@ -388,7 +411,7 @@ async def fetch_and_review_feeds(session: AsyncSession) -> int:
                     )
                 )
 
-        feed.last_fetched_at = datetime.now()
+        _mark_feed_fetch_success(feed)
 
     await session.commit()
 
@@ -415,9 +438,39 @@ async def list_feeds_db(db: AsyncSession):
             "url": f.url,
             "category": f.category,
             "is_active": f.is_active,
+            "consecutive_failures": f.consecutive_failures,
+            "last_success_at": (
+                f.last_success_at.isoformat() if f.last_success_at else None
+            ),
+            "last_error_at": f.last_error_at.isoformat() if f.last_error_at else None,
+            "last_error_message": f.last_error_message,
+            "auto_disabled_at": (
+                f.auto_disabled_at.isoformat() if f.auto_disabled_at else None
+            ),
         }
         for f in feeds
     ]
+
+
+async def reactivate_feed_db(feed_id: int, db: AsyncSession):
+    """Reactivate an auto-disabled feed and reset failure counters."""
+    feed = await db.get(Feed, feed_id)
+    if not feed:
+        return {"error": "Feed not found"}
+
+    feed.is_active = True
+    feed.consecutive_failures = 0
+    feed.last_error_at = None
+    feed.last_error_message = None
+    feed.auto_disabled_at = None
+    await db.commit()
+    await db.refresh(feed)
+    return {
+        "id": feed.id,
+        "name": feed.name,
+        "is_active": feed.is_active,
+        "consecutive_failures": feed.consecutive_failures,
+    }
 
 
 async def list_job_runs_db(limit: int, db: AsyncSession):

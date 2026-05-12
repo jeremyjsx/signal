@@ -14,6 +14,11 @@ class Feed(Base):
     url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     category: Mapped[str] = mapped_column(String(100), nullable=True)
     last_fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_success_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_error_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    auto_disabled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

@@ -9,6 +9,7 @@ from app.modules.feeds.service import (
     fetch_and_review_feeds,
     list_feeds_db,
     list_job_runs_db,
+    reactivate_feed_db,
 )
 
 router = APIRouter()
@@ -37,6 +38,12 @@ async def trigger_cleanup(db: AsyncSession = Depends(get_db)):
 async def create_feed(feed: FeedCreate, db: AsyncSession = Depends(get_db)):
     """Create a new feed"""
     return await create_feed_db(feed.name, feed.url, feed.category, db)
+
+
+@router.post("/feeds/{feed_id}/reactivate", tags=["feeds"])
+async def reactivate_feed(feed_id: int, db: AsyncSession = Depends(get_db)):
+    """Reactivate a feed and reset consecutive failure counters."""
+    return await reactivate_feed_db(feed_id=feed_id, db=db)
 
 
 @router.get("/feeds", tags=["feeds"])
