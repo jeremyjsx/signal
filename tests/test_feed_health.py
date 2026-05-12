@@ -133,3 +133,64 @@ async def test_cleanup_old_articles_returns_deleted_count_and_commits():
     assert "cutoff" in result
     assert db.committed is True
     assert db.last_stmt is not None
+
+
+class FakeScalarResult:
+    def __init__(self, items):
+        self._items = items
+
+    def all(self):
+        return self._items
+
+
+class FakeExecuteResult:
+    def __init__(self, items):
+        self._items = items
+
+    def scalars(self):
+        return FakeScalarResult(self._items)
+
+
+class FakeFetchSession:
+    def __init__(self, feeds):
+        self.feeds = feeds
+        self.commits = 0
+
+    async def execute(self, stmt):
+        return FakeExecuteResult(self.feeds)
+
+    async def commit(self):
+        self.commits += 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_review_feeds_auto_disables_after_threshold(
+    monkeypatch, restore_feed_disable_threshold
+):
+    settings.feed_disable_after_failures = 3
+    feed = SimpleNamespace(
+        id=1,
+        name="Failing Feed",
+        url="https://example.com/rss",
+        category="backend",
+        is_active=True,
+        consecutive_failures=2,
+        last_error_at=None,
+        last_error_message=None,
+        auto_disabled_at=None,
+    )
+    session = FakeFetchSession(feeds=[feed])
+
+    async def fake_fetch_feed(_feed):
+        return [], "timeout"
+
+    monkeypatch.setattr(feed_service, "fetch_feed", fake_fetch_feed)
+
+    new_count = await feed_service.fetch_and_review_feeds(session)
+
+    assert new_count == 0
+    assert feed.consecutive_failures == 3
+    assert feed.is_active is False
+    assert feed.auto_disabled_at is not None
+    assert feed.last_error_message == "timeout"
+    assert session.commits == 1
