@@ -81,3 +81,33 @@ def test_retry_failed_obsidian_endpoint_calls_service(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"retried": 2, "article_ids": [10, 11]}
     assert captured["limit"] == 25
+
+
+def test_feeds_quality_endpoint_rejects_invalid_status():
+    original_api_key = settings.api_key
+    settings.api_key = "test-key"
+    try:
+        with _create_test_client() as client:
+            response = client.get(
+                "/api/feeds/quality?status=unknown",
+                headers={"X-API-Key": "test-key"},
+            )
+    finally:
+        settings.api_key = original_api_key
+
+    assert response.status_code == 422
+
+
+def test_articles_endpoint_rejects_invalid_order_by():
+    original_api_key = settings.api_key
+    settings.api_key = "test-key"
+    try:
+        with _create_test_client() as client:
+            response = client.get(
+                "/api/articles?order_by=invalid",
+                headers={"X-API-Key": "test-key"},
+            )
+    finally:
+        settings.api_key = original_api_key
+
+    assert response.status_code == 422

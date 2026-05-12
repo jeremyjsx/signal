@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -57,7 +57,7 @@ async def list_feeds(db: AsyncSession = Depends(get_db)):
 
 @router.get("/feeds/quality", tags=["feeds"])
 async def list_feeds_quality(
-    status: Optional[str] = Query(default=None),
+    status: Optional[Literal["healthy", "degraded", "disabled"]] = Query(default=None),
     min_scored_articles: Optional[int] = Query(default=None, ge=1),
     min_curated_rate: Optional[float] = Query(default=None, ge=0, le=1),
     db: AsyncSession = Depends(get_db),

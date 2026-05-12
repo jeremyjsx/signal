@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +14,13 @@ async def list_articles(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     curated: Optional[bool] = None,
-    export_status: Optional[str] = Query(default=None),
+    export_status: Optional[Literal["pending", "exported", "failed"]] = Query(
+        default=None
+    ),
     score_min: Optional[float] = Query(default=None, ge=0, le=1),
     tag: Optional[str] = Query(default=None),
-    order_by: str = Query(default="fetched_at"),
-    order_dir: str = Query(default="desc"),
+    order_by: Literal["fetched_at", "score"] = Query(default="fetched_at"),
+    order_dir: Literal["asc", "desc"] = Query(default="desc"),
     db: AsyncSession = Depends(get_db),
 ):
     """List articles with pagination, filters and sorting."""
