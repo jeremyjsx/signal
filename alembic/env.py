@@ -5,7 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from app.core.config import settings
+from app.core.config import database_uses_tls, settings
 from app.core.database import Base
 from app.modules.feeds.models import Feed
 from app.modules.articles.models import Article
@@ -17,7 +17,18 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-alembic_url = settings.database_url.replace("+asyncpg", "")
+
+def _alembic_sync_url() -> str:
+    url = settings.database_url.replace("+asyncpg", "")
+    if not database_uses_tls(settings.database_url, settings.database_ssl):
+        return url
+    if "sslmode=" in url.lower():
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}sslmode=require"
+
+
+alembic_url = _alembic_sync_url()
 
 
 def run_migrations_offline() -> None:
