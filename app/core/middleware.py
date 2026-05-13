@@ -7,6 +7,8 @@ from app.core.config import settings
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
         if request.url.path.startswith("/api"):
             api_key = request.headers.get("X-API-Key")
             if api_key != settings.api_key:

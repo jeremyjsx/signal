@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     api_key: str = ""
+    cors_origins: str = ""
 
     groq_api_key: str = ""
     obsidian_vault_path: str = ""
