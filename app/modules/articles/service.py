@@ -21,8 +21,10 @@ async def list_articles_db(
 ):
     """List fetched articles with pagination, filtering and ordering."""
     score_subquery = (
-        select(ArticleScore.final_score).where(ArticleScore.article_id == Article.id)
-    ).scalar_subquery()
+        select(func.max(ArticleScore.final_score))
+        .where(ArticleScore.article_id == Article.id)
+        .scalar_subquery()
+    )
     query = (
         select(Article, score_subquery.label("final_score"), Feed.name)
         .join(Feed, Feed.id == Article.feed_id)
