@@ -187,7 +187,7 @@ export default async function Home() {
 
   if (!result.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f8f9fc] p-6">
+      <main className="flex flex-1 items-center justify-center bg-[#f8f9fc] p-6">
         <Card className="max-w-xl">
           <CardHeader>
             <CardTitle>Unable to load dashboard data</CardTitle>
@@ -199,7 +199,7 @@ export default async function Home() {
             <p className="text-sm text-[#6b7184]">{result.error}</p>
           </CardContent>
         </Card>
-      </div>
+      </main>
     );
   }
 
@@ -216,7 +216,7 @@ export default async function Home() {
   const hasMoreArticles = articles.items.length > 5;
 
   return (
-    <div className="min-h-screen bg-[#0b1736] text-[#dce6ff]">
+    <div className="flex flex-1 flex-col bg-[#0b1736] text-[#dce6ff]">
       <header className="bg-[linear-gradient(180deg,#4ea9ea_0%,#1f5fcb_38%,#10357a_68%,#0b1736_100%)] text-white">
         <div className="mx-auto flex min-h-[58vh] max-w-6xl flex-col items-start justify-center px-6 py-20 sm:py-24">
           <Badge className="mb-6 self-start bg-white/10 text-white shadow-[rgba(255,255,255,0.15)_0px_0px_0px_1px_inset]">
@@ -249,7 +249,7 @@ export default async function Home() {
             <Card className="bg-[#162a52] backdrop-blur-sm shadow-[rgba(0,0,0,0.22)_0px_0px_0px_1px]">
               <CardHeader>
                 <CardDescription className="flex items-center gap-2 text-[#b7c6ec]">
-                  <Rss aria-hidden="true" className="h-4 w-4" /> Feeds Monitored
+                  <Rss aria-hidden="true" focusable="false" className="h-4 w-4" /> Feeds Monitored
                 </CardDescription>
                 <CardTitle className="text-3xl text-white">{feeds.length}</CardTitle>
               </CardHeader>
@@ -260,7 +260,7 @@ export default async function Home() {
             <Card className="bg-[#162a52] backdrop-blur-sm shadow-[rgba(0,0,0,0.22)_0px_0px_0px_1px]">
               <CardHeader>
                 <CardDescription className="flex items-center gap-2 text-[#b7c6ec]">
-                  <CheckCircle2 aria-hidden="true" className="h-4 w-4" /> Healthy Feeds
+                  <CheckCircle2 aria-hidden="true" focusable="false" className="h-4 w-4" /> Healthy Feeds
                 </CardDescription>
                 <CardTitle className="text-3xl text-white">{healthyFeeds}</CardTitle>
               </CardHeader>
@@ -273,7 +273,7 @@ export default async function Home() {
             <Card className="bg-[#162a52] backdrop-blur-sm shadow-[rgba(0,0,0,0.22)_0px_0px_0px_1px]">
               <CardHeader>
                 <CardDescription className="flex items-center gap-2 text-[#b7c6ec]">
-                  <FileText aria-hidden="true" className="h-4 w-4" /> Curated Insights
+                  <FileText aria-hidden="true" focusable="false" className="h-4 w-4" /> Curated Insights
                 </CardDescription>
                 <CardTitle className="text-3xl text-white">{articles.total}</CardTitle>
               </CardHeader>
@@ -284,7 +284,7 @@ export default async function Home() {
             <Card className="bg-[#162a52] backdrop-blur-sm shadow-[rgba(0,0,0,0.22)_0px_0px_0px_1px]">
               <CardHeader>
                 <CardDescription className="flex items-center gap-2 text-[#b7c6ec]">
-                  <Clock3 aria-hidden="true" className="h-4 w-4" /> Curated Rate
+                  <Clock3 aria-hidden="true" focusable="false" className="h-4 w-4" /> Curated Rate
                 </CardDescription>
                 <CardTitle className="text-3xl text-white">{curatedRate}%</CardTitle>
               </CardHeader>
@@ -372,7 +372,7 @@ export default async function Home() {
         <section className="rounded-[24px] p-5 sm:p-6">
           <Card className="relative bg-[#162a52] backdrop-blur-sm shadow-[rgba(0,0,0,0.22)_0px_0px_0px_1px]">
             <Badge className="absolute right-6 top-6 bg-[#243d73] text-[#dce6ff]">
-              <Timer aria-hidden="true" className="mr-1 h-3.5 w-3.5" /> Scheduler Health
+              <Timer aria-hidden="true" focusable="false" className="mr-1 h-3.5 w-3.5" /> Scheduler Health
             </Badge>
             <CardHeader className="pr-36">
               <div>
@@ -399,9 +399,9 @@ export default async function Home() {
                     </div>
                     <Badge className={`capitalize shadow-none ${getJobStatusClasses(job.status)}`}>
                       {job.status === "error" ? (
-                        <AlertTriangle aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+                        <AlertTriangle aria-hidden="true" focusable="false" className="mr-1 h-3.5 w-3.5" />
                       ) : (
-                        <Activity aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+                        <Activity aria-hidden="true" focusable="false" className="mr-1 h-3.5 w-3.5" />
                       )}
                       {job.status.replace("_", " ")}
                     </Badge>
