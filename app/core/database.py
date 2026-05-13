@@ -10,7 +10,11 @@ class Base(DeclarativeBase):
     pass
 
 
-_engine_kwargs: dict[str, Any] = {"echo": settings.debug}
+_engine_kwargs: dict[str, Any] = {
+    "echo": settings.debug,
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
 if database_uses_tls(settings.database_url, settings.database_ssl):
     _engine_kwargs["connect_args"] = {"ssl": True}
 
