@@ -23,7 +23,10 @@ async def list_articles_db(
     score_subquery = (
         select(ArticleScore.final_score).where(ArticleScore.article_id == Article.id)
     ).scalar_subquery()
-    query = select(Article, score_subquery.label("final_score"))
+    query = (
+        select(Article, score_subquery.label("final_score"), Feed.name)
+        .join(Feed, Feed.id == Article.feed_id)
+    )
     count_query = select(func.count(Article.id))
 
     if curated is not None:
@@ -75,9 +78,10 @@ async def list_articles_db(
                 "is_rejected": article.is_rejected,
                 "ai_score": article.ai_relevance_score,
                 "score": score,
+                "feed_name": feed_name,
                 "obsidian_export_status": article.obsidian_export_status,
             }
-            for article, score in rows
+            for article, score, feed_name in rows
         ],
         "total": total,
         "limit": limit,
