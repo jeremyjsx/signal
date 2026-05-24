@@ -1,5 +1,6 @@
 import logging
 import hashlib
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -113,6 +114,7 @@ async def _record_seen_hashes(
     if not hashes:
         return
     now = datetime.now()
+    counts = Counter(hashes)
     rows = [
         {
             "normalized_url_hash": url_hash,
@@ -121,20 +123,19 @@ async def _record_seen_hashes(
             "reason_code": reason_code,
             "first_seen_at": now,
             "last_seen_at": now,
-            "seen_count": 1,
+            "seen_count": cnt,
         }
-        for url_hash in hashes
+        for url_hash, cnt in counts.items()
     ]
-    stmt = insert(ArticleDecision).values(rows)
-    await session.execute(
-        stmt.on_conflict_do_update(
-            index_elements=[ArticleDecision.normalized_url_hash],
-            set_={
-                "last_seen_at": now,
-                "seen_count": ArticleDecision.seen_count + 1,
-            },
-        )
+    insert_stmt = insert(ArticleDecision).values(rows)
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=[ArticleDecision.normalized_url_hash],
+        set_={
+            "last_seen_at": now,
+            "seen_count": ArticleDecision.seen_count + insert_stmt.excluded.seen_count,
+        },
     )
+    await session.execute(upsert_stmt)
 
 
 async def fetch_feed(feed) -> tuple[list[dict], Optional[str]]:
